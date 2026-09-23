@@ -1,5 +1,6 @@
 import asyncio
 import re
+import json
 from typing import AsyncGenerator, Dict, Any
 from config import CLI_COMMAND
 from backends.base import BaseAgentBackend
@@ -24,9 +25,12 @@ class CliAgentBackend(BaseAgentBackend):
         if self.first_turn:
             persona = (
                 "INSTRUÇÃO DE SISTEMA: Você é 'Agno', um agente de IA poderoso e amigável rodando no computador do usuário. "
-                "Sua interface é o aplicativo Telegram (texto e emojis). Você tem todos os poderes do Antigravity CLI, mas "
-                "aja sempre sob a persona de Agno. Responda de forma clara, usando Markdown leve e emojis amigáveis. "
-                "Nunca diga que é o Antigravity, diga que é o Agno. Sempre responda em pt-BR.\n\n"
+                "Sua interface é o aplicativo Telegram (texto e emojis). Você tem todos os poderes do sistema. "
+                "IMPORTANTÍSSIMO: Antes de invocar qualquer ferramenta destrutiva ou executar comandos de terminal perigosos "
+                "(ex: criar/modificar arquivos reais, rodar comandos globais), você DEVE explicar ao usuário o que fará "
+                "e PERGUNTAR se ele autoriza. Somente execute a ferramenta no turno seguinte, após ele dizer 'sim'. "
+                "Aja sempre sob a persona de Agno. Responda de forma clara, usando Markdown leve e emojis amigáveis. "
+                "Sempre responda em pt-BR.\n\n"
                 "Mensagem do Usuário: "
             )
             prompt_to_send = persona + prompt
@@ -36,9 +40,11 @@ class CliAgentBackend(BaseAgentBackend):
 
         try:
             # Spawns a new process for each turn, continuing the last conversation
-            # Using exec avoids shell escaping issues on Windows
+            # Utiliza stream-json para capturar as ferramentas corretamente e desativa as travas nativas de permissão 
+            # (pois a restrição agora será via prompt no chat)
             process = await asyncio.create_subprocess_exec(
                 CLI_COMMAND, "-c", "-p", prompt_to_send,
+                "--output-format", "stream-json", "--dangerously-skip-permissions",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -58,26 +64,34 @@ class CliAgentBackend(BaseAgentBackend):
         # Lê a resposta enquanto houver dados até o EOF
         while True:
             try:
-                chunk = await process.stdout.read(1024)
-                if not chunk:
+                line = await process.stdout.readline()
+                if not line:
                     break
                 
-                text = chunk.decode("utf-8", errors="replace")
-                clean_text = self.ansi_escape.sub('', text)
-                
-                # Trata mensagens de negação de política de segurança da CLI
-                if "Denied by policy" in clean_text or "denied by pre-tool hook" in clean_text:
-                    yield {"type": "tool_call", "content": "⚠️ [CLI] Ação restrita por política interna"}
-                    clean_text = re.sub(r'Denied by policy "[^"]*"\.\s*\("denied by pre-tool hook:[^)]*"\)\s*', '', clean_text)
-                    clean_text = re.sub(r'\(denied by pre-tool hook:[^)]*\)\s*', '', clean_text)
-                    clean_text = re.sub(r'Denied by policy "[^"]*"\.\s*', '', clean_text)
-
-                # Heurística para detectar uso de ferramentas no output puro
-                if "Running" in clean_text or "tool" in clean_text.lower():
-                    yield {"type": "tool_call", "content": "🛠️ [CLI] Operação detectada..."}
-                
-                if clean_text:
-                    yield {"type": "token", "content": clean_text}
+                decoded_line = line.decode("utf-8", errors="replace").strip()
+                if not decoded_line:
+                    continue
+                    
+                try:
+                    data = json.loads(decoded_line)
+                    
+                    if data.get("event") == "step_update":
+                        step = data.get("step_update", {})
+                        
+                        # Capturar uso de ferramentas
+                        if step.get("state") == "ACTIVE" and step.get("step_type") == "tool":
+                            tool_name = step.get("tool_name", "ferramenta_desconhecida")
+                            yield {"type": "tool_call", "content": f"🛠️ Executando {tool_name}..."}
+                            
+                        # Capturar tokens de texto
+                        if step.get("step_type") == "agent_response" and "text_delta" in step:
+                            yield {"type": "token", "content": step["text_delta"]}
+                            
+                except json.JSONDecodeError:
+                    # Fallback para texto plano se não for JSON
+                    clean_text = self.ansi_escape.sub('', decoded_line)
+                    if clean_text:
+                        yield {"type": "token", "content": clean_text + "\n"}
                     
             except Exception as e:
                 yield {"type": "error", "content": f"CLI Read Error: {str(e)}"}

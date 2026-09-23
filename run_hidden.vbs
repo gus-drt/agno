@@ -1,2 +1,5 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "c:\Users\duart\Downloads\Projetos\Agno\venv\Scripts\python.exe c:\Users\duart\Downloads\Projetos\Agno\main.py", 0, False
+Set fso = CreateObject("Scripting.FileSystemObject")
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+WshShell.CurrentDirectory = scriptDir
+WshShell.Run """" & scriptDir & "\venv\Scripts\python.exe"" """ & scriptDir & "\main.py""", 0, False

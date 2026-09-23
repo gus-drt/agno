@@ -1,5 +1,38 @@
+# Ambientes Virtuais
 venv/
+.venv/
+env/
+ENV/
+
+# Python Cache & Compilados
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Variáveis de Ambiente e Segredos (CRÍTICO)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service_account.json
+
+# Logs e Sessões Locais
 logs/
-*.pyc
+*.log
+*.session
+*.session-journal
+*.db
+*.sqlite
+*.sqlite3
+
+# Arquivos de Sistema e IDEs
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
