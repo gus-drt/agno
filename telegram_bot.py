@@ -85,6 +85,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_text = ""
     last_edit_time = asyncio.get_event_loop().time()
     buffer = ""
+    tool_msg = None
+    tool_text = ""
     
     try:
         async for item in agent_runner.chat_stream(user_text):
@@ -109,7 +111,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     buffer = ""
                     
             elif item["type"] == "tool_call":
-                await update.message.reply_text(f"<i>{html.escape(item['content'])}</i>", parse_mode="HTML")
+                tool_text += f"{html.escape(item['content'])}\n"
+                if not tool_msg:
+                    tool_msg = await update.message.reply_text(f"<i>{tool_text}</i>", parse_mode="HTML")
+                else:
+                    try:
+                        await tool_msg.edit_text(f"<i>{tool_text}</i>", parse_mode="HTML")
+                    except Exception:
+                        pass
                 
             elif item["type"] == "error":
                 await update.message.reply_text(f"⚠️ Erro no agente: {item['content']}")
